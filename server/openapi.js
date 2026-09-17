@@ -6,6 +6,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { getAbsoluteFSPath } from 'swagger-ui-dist'
+import { isApiDocsEnabled, MAX_REQUEST_BODY_BYTES } from './security.js'
 
 // Mirrors SKILL.md section 5 (JSON Schema Contract) / shared/schema.js.
 const websiteStateSchema = {
@@ -130,6 +131,7 @@ export const openApiSpec = {
           },
           400: { description: 'Missing/empty `input`' },
           403: { description: 'Origin not in the ALLOWED_ORIGIN allowlist (#20)' },
+          413: { description: `Request body exceeds ${MAX_REQUEST_BODY_BYTES} bytes (#25)` },
         },
       },
     },
@@ -163,6 +165,7 @@ export const openApiSpec = {
           },
           400: { description: 'Missing `current` or `message`' },
           403: { description: 'Origin not in the ALLOWED_ORIGIN allowlist (#20)' },
+          413: { description: `Request body exceeds ${MAX_REQUEST_BODY_BYTES} bytes (#25)` },
         },
       },
     },
@@ -177,7 +180,7 @@ export const openApiSpec = {
           ok: { type: 'boolean' },
           source: { type: 'string', enum: ['llm'] },
           data: { ...websiteStateSchema, nullable: true },
-          error: { type: 'string', enum: ['not_configured', 'llm_failed', 'bad_request', 'network', 'origin_not_allowed'] },
+          error: { type: 'string', enum: ['not_configured', 'llm_failed', 'bad_request', 'network', 'origin_not_allowed', 'payload_too_large'] },
           fallback: { ...websiteStateSchema, nullable: true },
         },
       },
@@ -188,8 +191,11 @@ export const openApiSpec = {
 const SWAGGER_UI_PATH = getAbsoluteFSPath()
 const CONTENT_TYPES = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.png': 'image/png', '.map': 'application/json' }
 
-/** Serves GET /api/openapi.json and the Swagger UI at GET /api/docs(/*). Returns true if it handled the request. */
+/** Serves GET /api/openapi.json and the Swagger UI at GET /api/docs(/*). Returns true if it handled the request.
+ * Off by default (issue #25 item 12) — the full API spec shouldn't be publicly
+ * browsable the moment a deploy is live. Opt in locally with ENABLE_API_DOCS=true. */
 export function serveApiDocs(req, res) {
+  if (!isApiDocsEnabled()) return false
   if (req.method !== 'GET') return false
 
   if (req.url === '/api/openapi.json') {

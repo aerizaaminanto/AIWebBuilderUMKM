@@ -6,9 +6,11 @@
 import { buildRevisionPrompt } from '../server/prompts.js'
 import { generateWithRetry } from '../server/geminiClient.js'
 import { normalizeHistory } from '../server/routes.js'
-import { isOriginAllowed } from '../server/security.js'
+import { isOriginAllowed, applySecurityHeaders } from '../server/security.js'
 
 export default async function handler(req, res) {
+  applySecurityHeaders(res)
+
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
     return res.status(405).json({ ok: false, error: 'bad_request' })

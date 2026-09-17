@@ -7,13 +7,28 @@
 import { buildInitialPrompt, buildRevisionPrompt, trimHistory } from './prompts.js'
 import { getFallback } from '../shared/schema.js'
 import { generateWithRetry } from './geminiClient.js'
-import { isOriginAllowed } from './security.js'
+import { isOriginAllowed, applySecurityHeaders, MAX_REQUEST_BODY_BYTES } from './security.js'
 
-function readJsonBody(req) {
+function readJsonBody(req, maxBytes) {
   return new Promise((resolve, reject) => {
     let raw = ''
-    req.on('data', (chunk) => { raw += chunk })
+    let bytes = 0
+    let rejected = false
+    // Destroying the socket here would kill the connection before the 413
+    // response below can be written back on it (req/res share one socket) —
+    // just stop buffering and let the caller send a normal response instead.
+    const onData = (chunk) => {
+      if (rejected) return
+      bytes += chunk.length
+      if (bytes > maxBytes) {
+        rejected = true
+        return reject(new Error('payload_too_large'))
+      }
+      raw += chunk
+    }
+    req.on('data', onData)
     req.on('end', () => {
+      if (rejected) return
       if (!raw) return resolve({})
       try { resolve(JSON.parse(raw)) } catch { reject(new Error('invalid_json_body')) }
     })
@@ -46,6 +61,8 @@ export function registerApiRoutes(server, apiKey) {
       return next()
     }
 
+    applySecurityHeaders(res)
+
     if (!isOriginAllowed(req.headers.origin)) {
       return sendJson(res, 403, { ok: false, error: 'origin_not_allowed' })
     }
@@ -56,8 +73,9 @@ export function registerApiRoutes(server, apiKey) {
 
     let body
     try {
-      body = await readJsonBody(req)
-    } catch {
+      body = await readJsonBody(req, MAX_REQUEST_BODY_BYTES)
+    } catch (err) {
+      if (err.message === 'payload_too_large') return sendJson(res, 413, { ok: false, error: 'payload_too_large' })
       return sendJson(res, 400, { ok: false, error: 'bad_request' })
     }
 
