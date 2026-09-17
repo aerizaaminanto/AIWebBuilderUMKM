@@ -67,6 +67,7 @@ export default function App() {
   const [activeTemplate, setActiveTemplate] = useState(TEMPLATE_FNB)
   const [activeTheme, setActiveTheme] = useState('modern-warm')
   const [activeViewport, setActiveViewport] = useState('desktop')
+  const [pendingTemplateSwitch, setPendingTemplateSwitch] = useState(null)
 
   // Website data now lives in the backend state manager (TSK-03B), which
   // persists it to sessionStorage so a reload doesn't lose AI-driven edits.
@@ -135,6 +136,7 @@ export default function App() {
 
   // Handle template selection switch
   const handleSelectTemplate = (templateId) => {
+    setPendingTemplateSwitch(null)
     setActiveTemplate(templateId)
     const defaultTheme = TEMPLATE_META[templateId].defaultTheme
     setActiveTheme(defaultTheme)
@@ -182,12 +184,64 @@ export default function App() {
     }
   }
 
+  // Handle theme pallete change for active template
+  const handleThemeChangeForActiveTemplate = (themeId) => {
+    const currentThemes = TEMPLATE_META[activeTemplate].themes
+    const themeObj = currentThemes.find((t) => t.id === themeId) || currentThemes[0]
+    setActiveTheme(themeObj.id)
+    setWebsiteData((prev) => ({
+      ...prev,
+      theme: {
+        ...prev.theme,
+        primaryColor: themeObj.primaryColor,
+        secondaryColor: themeObj.secondaryColor,
+        accentColor: themeObj.accentColor,
+      },
+    }))
+  }
+
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+  const handleConfirmTemplateSwitch = () => {
+    if (!pendingTemplateSwitch) return
+    const { pendingTemplateId } = pendingTemplateSwitch
+    setPendingTemplateSwitch(null)
+    setMessages((prev) => prev.filter((m) => m.type !== 'confirm-switch'))
+    handleSelectTemplate(pendingTemplateId)
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `bot-${Date.now()}`,
+        sender: 'assistant',
+        text: `Baik, draft baru untuk kategori ${TEMPLATE_META[pendingTemplateId].name} sudah dibuat. Silakan lanjutkan revisi.`,
+      },
+    ])
+  }
+  
+  const handleCancelTemplateSwitch = () => {
+    if (!pendingTemplateSwitch) return
+    setPendingTemplateSwitch(null)
+    setMessages((prev) =>
+      prev
+        .filter((m) => m.type !== 'confirm-switch')
+        .concat({
+          id: `bot-${Date.now()}`,
+          sender: 'assistant',
+          text: `Baik, saya lanjutkan sebagai revisi pada draft "${websiteData?.meta?.businessName || 'Anda'}" tanpa mengganti template. Silakan sampaikan revisinya.`,
+        })
+    )
+  }
+
   // Process revision prompt (TSK-05D / Hari 6 UI; TSK-02B/03B/05B backend orchestration)
-  const handleSendPrompt = async (promptText) => {
+  const handleSendPrompt = async (promptText, source='free-text') => {
     const text = (promptText || inputPrompt).trim()
     if (!text) return
+
+    function isRealDraft(data) {
+      if (!data || !data.meta) return false
+      const defaultName = mockDataByTemplate[TEMPLATE_FNB]?.meta?.businessName
+      return !!data.meta.businessName && data.meta.businessName !== defaultName
+    }
 
     // Append user message
     const userMsg = {
@@ -205,15 +259,22 @@ export default function App() {
 
     // Fast, deterministic local actions (1-4) never touch the network —
     // no reason to spend a Gemini call on a plain palette swap.
+    function isDeterministicQuickAction(lower) {
+      return (
+        lower.includes('cokelat') || lower.includes('klasik') || lower.includes('modern warm') ||
+        lower.includes('amber') || lower.includes('hangat') || lower.includes('warm amber') ||
+        lower.includes('hijau') || lower.includes('sage') || lower.includes('toska') ||
+        lower.includes('biru') || lower.includes('corporate') || lower.includes('navy') ||
+        lower.includes('ungu') || lower.includes('violet') || lower.includes('retail') ||
+        lower.includes('headline') || lower.includes('judul') || lower.includes('slogan') ||
+        lower.includes('menu') || lower.includes('tambah') || lower.includes('produk') ||
+        lower.includes('whatsapp') || lower.includes('nomor') ||
+        lower.includes('ganti wa') || lower.includes('update wa')
+      )
+    }
+    
     const isDeterministicAction =
-      lower.includes('cokelat') || lower.includes('klasik') || lower.includes('modern warm') ||
-      lower.includes('amber') || lower.includes('hangat') || lower.includes('warm amber') ||
-      lower.includes('hijau') || lower.includes('sage') || lower.includes('toska') ||
-      lower.includes('biru') || lower.includes('corporate') || lower.includes('navy') ||
-      lower.includes('ungu') || lower.includes('violet') || lower.includes('retail') ||
-      lower.includes('headline') || lower.includes('judul') || lower.includes('slogan') ||
-      lower.includes('menu') || lower.includes('tambah') || lower.includes('produk') ||
-      lower.includes('whatsapp') || lower.includes('nomor') || lower.includes('ganti wa') || lower.includes('update wa')
+      source === 'quick-action' && isDeterministicQuickAction(lower)
 
     if (isDeterministicAction) {
       await wait(450)
@@ -229,36 +290,61 @@ export default function App() {
         handleThemeChange('forest-sage')
         responseText = 'Warna website diperbarui ke tema Forest Sage yang segar dan natural.'
       } else if (lower.includes('biru') || lower.includes('corporate') || lower.includes('navy')) {
-        if (activeTemplate !== TEMPLATE_SERVICES) {
-          handleSelectTemplate(TEMPLATE_SERVICES)
-        }
-        handleThemeChange('corporate-blue')
-        responseText = 'Website dialihkan ke tema Corporate Blue profesional.'
+        handleThemeChangeForActiveTemplate('corporate-blue', responseText => {})
+        responseText = 'Warna website diperbarui ke tema Corporate Blue profesional. Konten Anda tetap aman.'
       } else if (lower.includes('ungu') || lower.includes('violet') || lower.includes('retail')) {
-        if (activeTemplate !== TEMPLATE_RETAIL) {
-          handleSelectTemplate(TEMPLATE_RETAIL)
-        }
-        handleThemeChange('bold-violet')
-        responseText = 'Website dialihkan ke tema Bold Violet untuk produk retail.'
+        handleThemeChangeForActiveTemplate('bold-violet', responseText => {})
+        responseText = 'Warna website diperbarui ke tema Bold Violet. Konten Anda tetap aman.'
       }
+      
       // 2. Check headline revision
       else if (lower.includes('headline') || lower.includes('judul') || lower.includes('slogan')) {
-        const newTitle = 'Sensasi Kopi Autentik & Ruang Kreatif'
-        const newSubtitle = 'Ruang temu hangat untuk berdiskusi, bekerja santai, dan menikmati racikan biji kopi terbaik Nusantara.'
-        patchWebsite({ hero: { ...websiteData.hero, title: newTitle, subtitle: newSubtitle } })
-        responseText = `Headline berhasil diperbarui menjadi "${newTitle}". Susunan kalimat dioptimalkan untuk daya tarik maksimal!`
+        const headlineByTemplate = {
+          [TEMPLATE_FNB]: {
+            title: 'Sensasi Kopi Autentik & Ruang Kreatif',
+            subtitle: 'Ruang temu hangat untuk berdiskusi, bekerja santai, dan menikmati racikan biji kopi terbaik Nusantara.',
+          },
+          [TEMPLATE_SERVICES]: {
+            title: 'Solusi Profesional untuk Bisnis Anda',
+            subtitle: 'Tim ahli siap membantu Anda mencapai hasil terbaik dengan layanan yang tepat sasaran.',
+          },
+          [TEMPLATE_RETAIL]: {
+            title: 'Koleksi Pilihan, Kualitas Terjamin',
+            subtitle: 'Temukan produk terbaik dengan harga bersaing dan pelayanan cepat.',
+          },
+        }
+        const newHeadline = headlineByTemplate[activeTemplate] || headlineByTemplate[TEMPLATE_FNB]
+        patchWebsite({ hero: { ...websiteData.hero, title: newHeadline.title, subtitle: newHeadline.subtitle } })
+        responseText = `Headline berhasil diperbarui menjadi "${newHeadline.title}". Susunan kalimat dioptimalkan untuk daya tarik maksimal!`
       }
+
       // 3. Check menu/product addition — dedicated append action (TSK-05B), not a full replace
       else if (lower.includes('menu') || lower.includes('tambah') || lower.includes('produk')) {
-        const newItem = {
-          name: 'Pisang Goreng Keju Crispy',
-          description: 'Pisang kepok manis berbalut tepung renyah dengan taburan keju cheddar gurih dan susu kental manis',
-          priceEstimate: 'Rp15.000',
-          icon: '🍌',
+        const newItemByTemplate = {
+          [TEMPLATE_FNB]: {
+            name: 'Pisang Goreng Keju Crispy',
+            description: 'Pisang kepok manis berbalut tepung renyah dengan taburan keju cheddar gurih dan susu kental manis',
+            priceEstimate: 'Rp15.000',
+            icon: '🍌',
+          },
+          [TEMPLATE_SERVICES]: {
+            name: 'Paket Konsultasi Premium',
+            description: 'Sesi konsultasi intensif 2 jam bersama tim ahli untuk solusi bisnis Anda',
+            priceEstimate: 'Rp500.000',
+            icon: '💼',
+          },
+          [TEMPLATE_RETAIL]: {
+            name: 'Voucher Belanja Rp50.000',
+            description: 'Voucher diskon untuk pembelian berikutnya, berlaku 30 hari',
+            priceEstimate: 'Rp50.000',
+            icon: '🎟️',
+          },
         }
+        const newItem = newItemByTemplate[activeTemplate] || newItemByTemplate[TEMPLATE_FNB]
         appendServiceItem(newItem)
-        responseText = `Menu baru "${newItem.name}" (${newItem.priceEstimate}) berhasil ditambahkan ke daftar katalog menu!`
+        responseText = `Item baru "${newItem.name}" (${newItem.priceEstimate}) berhasil ditambahkan ke katalog!`
       }
+
       // 4. Check WhatsApp update
       // NOTE: bare "wa" is deliberately excluded — it false-matches substrings like
       // "warung"/"warna", which would misroute business-description prompts (e.g. TC-01's
@@ -279,9 +365,29 @@ export default function App() {
       // back to deterministic template detection so the demo never stalls
       // when no GEMINI_API_KEY is configured (see server/index.js).
       const detected = determineTemplate(text)
-      const history = toChatHistory(messages)
       const isNewBusinessDescription = detected !== activeTemplate
 
+      if (isNewBusinessDescription && isRealDraft(websiteData)) {
+        setPendingTemplateSwitch({
+          pendingTemplateId: detected,
+          pendingText: text,
+          originalPrompt: text,
+        })
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `bot-confirm-${Date.now()}`,
+            sender: 'assistant',
+            type: 'confirm-switch',
+            text: `Sepertinya Anda sedang menyebut bisnis kategori ${TEMPLATE_META[detected].name}. Saat ini draft aktif Anda adalah ${TEMPLATE_META[activeTemplate].name} "${websiteData?.meta?.businessName || ''}". Mulai draft baru dan timpa yang sekarang?`,
+            pendingTemplateId: detected,
+          },
+        ])
+        setIsTyping(false)
+      return                                         // ← keluar lebih awal
+      }
+
+      const history = toChatHistory(messages)
       const result = isNewBusinessDescription
         ? await generateWebsite(text)
         : await reviseWebsite(websiteData, text, history)
@@ -331,6 +437,7 @@ export default function App() {
         id: `bot-${Date.now()}`,
         sender: 'assistant',
         text: responseText,
+        source: isDeterministicAction ? 'deterministic' : 'llm',
       },
     ])
     setIsTyping(false)
@@ -519,6 +626,28 @@ export default function App() {
                         </div>
                       </div>
                     )}
+
+                    {msg.type === 'confirm-switch' && (
+                      <div
+                        className="flex gap-2 pt-2 border-t border-slate-100"
+                        data-testid="confirm-switch-actions"
+                      >
+                        <button
+                          onClick={handleConfirmTemplateSwitch}
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                          data-testid="confirm-switch-yes"
+                        >
+                          Ya, mulai draft baru
+                        </button>
+                        <button
+                          onClick={handleCancelTemplateSwitch}
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
+                          data-testid="confirm-switch-no"
+                        >
+                          Batal, lanjutkan revisi
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               )
@@ -545,7 +674,7 @@ export default function App() {
               {EXAMPLE_BUSINESS_PROMPTS.map((example) => (
                 <button
                   key={example.label}
-                  onClick={() => handleSendPrompt(example.text)}
+                  onClick={() => handleSendPrompt(example.text, 'quick-action')}
                   disabled={isTyping}
                   className="px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-800 border border-blue-200/80 hover:bg-blue-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   title={example.text}
@@ -563,13 +692,13 @@ export default function App() {
             </p>
             <div className="flex flex-wrap gap-1.5">
               <button
-                onClick={() => handleSendPrompt('Ubah warna utama jadi cokelat tua klasik.')}
+                onClick={() => handleSendPrompt('Ubah warna utama jadi cokelat tua klasik.', 'quick-action')}
                 className="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-900 border border-amber-200/80 hover:bg-amber-100 transition-colors"
               >
                 ☕ Cokelat Klasik
               </button>
               <button
-                onClick={() => handleSendPrompt('Ganti headline jadi lebih menarik.')}
+                onClick={() => handleSendPrompt('Ganti headline jadi lebih menarik.', 'quick-action')}
                 className="px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
               >
                 ✏️ Headline Baru
@@ -581,7 +710,7 @@ export default function App() {
                 ➕ Menu Baru
               </button>
               <button
-                onClick={() => handleSendPrompt('Ganti warna jadi warm amber')}
+                onClick={() => handleSendPrompt('Ganti warna jadi warm amber', 'quick-action')}
                 className="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 hover:bg-amber-100 transition-colors"
               >
                 🍯 Warm Amber
