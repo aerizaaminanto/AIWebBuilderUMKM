@@ -7,7 +7,7 @@
 import { buildInitialPrompt, buildRevisionPrompt, trimHistory } from './prompts.js'
 import { getFallback } from '../shared/schema.js'
 import { generateWithRetry } from './geminiClient.js'
-import { isOriginAllowed, applySecurityHeaders, MAX_REQUEST_BODY_BYTES } from './security.js'
+import { isOriginAllowed, applySecurityHeaders, MAX_REQUEST_BODY_BYTES, isRateLimited, rateLimitRetryAfterSeconds } from './security.js'
 
 function readJsonBody(req, maxBytes) {
   return new Promise((resolve, reject) => {
@@ -65,6 +65,11 @@ export function registerApiRoutes(server, apiKey) {
 
     if (!isOriginAllowed(req.headers.origin)) {
       return sendJson(res, 403, { ok: false, error: 'origin_not_allowed' })
+    }
+
+    if (isRateLimited(req)) {
+      res.setHeader('Retry-After', String(rateLimitRetryAfterSeconds()))
+      return sendJson(res, 429, { ok: false, error: 'rate_limited' })
     }
 
     if (!apiKey) {

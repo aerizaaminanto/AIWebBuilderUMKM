@@ -66,3 +66,42 @@ export function applySecurityHeaders(res) {
 export function isApiDocsEnabled() {
   return process.env.ENABLE_API_DOCS === 'true'
 }
+
+// Issue #8: the shared GEMINI_API_KEY free tier is capped at 20
+// requests/day (tests/e2e/fixtures.js:9 — the team has already hit this
+// testing manually), and every failed call retries once
+// (geminiClient.js MAX_ATTEMPTS = 2), so one client rapid-clicking/
+// refreshing can burn the day's whole budget before the real demo starts.
+const RATE_LIMIT_WINDOW_MS = 60 * 1000
+const RATE_LIMIT_MAX_REQUESTS = 5
+const rateLimitBuckets = new Map()
+
+function getClientKey(req) {
+  const forwarded = req.headers?.['x-forwarded-for']
+  if (forwarded) return String(forwarded).split(',')[0].trim()
+  return req.socket?.remoteAddress || 'unknown'
+}
+
+/**
+ * Simple in-memory fixed-window counter, keyed by client IP — enough for
+ * demo scale (no Redis). Known limitation: on Vercel each invocation may
+ * land on a different container instance, so this is best-effort there
+ * (still effective for the common case of one warm container serving a
+ * live demo's sequential requests); it's fully reliable on the single
+ * long-lived Node process behind `npm run dev`/`preview`.
+ */
+export function isRateLimited(req) {
+  const key = getClientKey(req)
+  const now = Date.now()
+  const bucket = rateLimitBuckets.get(key)
+  if (!bucket || now - bucket.windowStart > RATE_LIMIT_WINDOW_MS) {
+    rateLimitBuckets.set(key, { count: 1, windowStart: now })
+    return false
+  }
+  bucket.count += 1
+  return bucket.count > RATE_LIMIT_MAX_REQUESTS
+}
+
+export function rateLimitRetryAfterSeconds() {
+  return Math.ceil(RATE_LIMIT_WINDOW_MS / 1000)
+}

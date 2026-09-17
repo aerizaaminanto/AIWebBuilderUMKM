@@ -13,7 +13,7 @@
 import { buildInitialPrompt } from '../server/prompts.js'
 import { getFallback } from '../shared/schema.js'
 import { generateWithRetry } from '../server/geminiClient.js'
-import { isOriginAllowed, applySecurityHeaders } from '../server/security.js'
+import { isOriginAllowed, applySecurityHeaders, isRateLimited, rateLimitRetryAfterSeconds } from '../server/security.js'
 
 export default async function handler(req, res) {
   applySecurityHeaders(res)
@@ -25,6 +25,11 @@ export default async function handler(req, res) {
 
   if (!isOriginAllowed(req.headers.origin)) {
     return res.status(403).json({ ok: false, error: 'origin_not_allowed' })
+  }
+
+  if (isRateLimited(req)) {
+    res.setHeader('Retry-After', String(rateLimitRetryAfterSeconds()))
+    return res.status(429).json({ ok: false, error: 'rate_limited' })
   }
 
   const apiKey = process.env.GEMINI_API_KEY || ''
