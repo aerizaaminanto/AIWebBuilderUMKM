@@ -10,7 +10,8 @@
     "preview": "vite preview --host 0.0.0.0 --port 3000",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

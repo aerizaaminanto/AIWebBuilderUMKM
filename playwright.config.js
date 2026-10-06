@@ -7,7 +7,11 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  reporter: [['list']],
+  // 'list' for the terminal, 'html' for a browsable record of the run
+  // (per-test steps, plus trace/screenshot on failure) in playwright-report/.
+  // open: 'never' so a failing run exits instead of blocking on a browser
+  // tab — view it on demand with `npm run test:e2e:report`.
+  reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: `http://localhost:${PORT}`,
     trace: 'retain-on-failure',

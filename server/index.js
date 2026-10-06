@@ -17,12 +17,12 @@ import { registerApiRoutes } from './routes.js'
 import { serveApiDocs } from './openapi.js'
 import { isApiDocsEnabled } from './security.js'
 
-function registerServer(server, apiKey) {
+function registerServer(server, apiKey, vercelConfig) {
   server.middlewares.use((req, res, next) => {
     if (serveApiDocs(req, res)) return
     next()
   })
-  registerApiRoutes(server, apiKey)
+  registerApiRoutes(server, apiKey, vercelConfig)
 }
 
 /** Vite plugin: wires the API + docs routes into both `vite dev` and `vite preview`. */
@@ -31,12 +31,18 @@ export default function backendApiPlugin(env) {
   if (!apiKey) {
     console.warn('[server] GEMINI_API_KEY not set — /api/generate and /api/revise will report not_configured, and the app falls back to offline/local simulation.')
   }
+  // US-11 (Could-Have stretch goal, TSK-06D): /api/publish stays
+  // `not_configured` (Publish button disabled client-side) until this is set.
+  const vercelConfig = { token: env.VERCEL_TOKEN || '', teamId: env.VERCEL_TEAM_ID || '' }
+  if (!vercelConfig.token) {
+    console.warn('[server] VERCEL_TOKEN not set — /api/publish (US-11 stretch goal) will report not_configured.')
+  }
   if (!isApiDocsEnabled()) {
     console.warn('[server] /api/docs disabled by default (issue #25) — export ENABLE_API_DOCS=true in your shell if you need Swagger UI locally.')
   }
   return {
     name: 'umkm-backend-api',
-    configureServer(server) { registerServer(server, apiKey) },
-    configurePreviewServer(server) { registerServer(server, apiKey) },
+    configureServer(server) { registerServer(server, apiKey, vercelConfig) },
+    configurePreviewServer(server) { registerServer(server, apiKey, vercelConfig) },
   }
 }

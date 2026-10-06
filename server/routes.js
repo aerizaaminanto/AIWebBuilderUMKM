@@ -7,7 +7,10 @@
 import { buildInitialPrompt, buildRevisionPrompt, trimHistory } from './prompts.js'
 import { getFallback } from '../shared/schema.js'
 import { generateWithRetry } from './geminiClient.js'
-import { isOriginAllowed, applySecurityHeaders, MAX_REQUEST_BODY_BYTES, isRateLimited, rateLimitRetryAfterSeconds } from './security.js'
+import { deployToVercel } from './vercelClient.js'
+import { isOriginAllowed, applySecurityHeaders, MAX_REQUEST_BODY_BYTES, MAX_PUBLISH_BODY_BYTES, isRateLimited, rateLimitRetryAfterSeconds } from './security.js'
+
+const API_ROUTES = ['/api/generate', '/api/revise', '/api/publish']
 
 function readJsonBody(req, maxBytes) {
   return new Promise((resolve, reject) => {
@@ -54,10 +57,18 @@ export function normalizeHistory(raw) {
   return trimHistory(cleaned, 3)
 }
 
-/** Registers POST /api/generate and /api/revise on a Vite dev/preview server. */
-export function registerApiRoutes(server, apiKey) {
+/**
+ * Registers POST /api/generate, /api/revise and /api/publish on a Vite
+ * dev/preview server. `vercelConfig` is optional (US-11 is a Could-Have
+ * stretch goal) — when its `token` is empty, /api/publish reports
+ * `not_configured` the same way /api/generate and /api/revise already do
+ * for a missing Gemini key.
+ */
+export function registerApiRoutes(server, apiKey, vercelConfig = {}) {
+  const { token: vercelToken = '', teamId: vercelTeamId = '' } = vercelConfig
+
   server.middlewares.use(async (req, res, next) => {
-    if (req.method !== 'POST' || (req.url !== '/api/generate' && req.url !== '/api/revise')) {
+    if (req.method !== 'POST' || !API_ROUTES.includes(req.url)) {
       return next()
     }
 
@@ -70,6 +81,29 @@ export function registerApiRoutes(server, apiKey) {
     if (isRateLimited(req)) {
       res.setHeader('Retry-After', String(rateLimitRetryAfterSeconds()))
       return sendJson(res, 429, { ok: false, error: 'rate_limited' })
+    }
+
+    if (req.url === '/api/publish') {
+      if (!vercelToken) return sendJson(res, 200, { ok: false, error: 'not_configured' })
+
+      let publishBody
+      try {
+        publishBody = await readJsonBody(req, MAX_PUBLISH_BODY_BYTES)
+      } catch (err) {
+        if (err.message === 'payload_too_large') return sendJson(res, 413, { ok: false, error: 'payload_too_large' })
+        return sendJson(res, 400, { ok: false, error: 'bad_request' })
+      }
+
+      const html = String(publishBody?.html || '')
+      const slug = String(publishBody?.slug || 'umkm-website')
+      if (!html) return sendJson(res, 400, { ok: false, error: 'bad_request' })
+
+      const result = await deployToVercel({ token: vercelToken, teamId: vercelTeamId, projectName: slug, html })
+      // Nested under `data` (not a top-level `url`) to match the same
+      // `{ ok, data, error }` envelope /api/generate and /api/revise use —
+      // src/lib/websiteController.js's postJson() only ever surfaces `data`.
+      if (result.ok) return sendJson(res, 200, { ok: true, data: { url: result.url } })
+      return sendJson(res, 200, { ok: false, error: 'publish_failed', detail: result.error })
     }
 
     if (!apiKey) {

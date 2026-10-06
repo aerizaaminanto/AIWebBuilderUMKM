@@ -20,6 +20,11 @@ let warned = false
  * headroom against memory-exhaustion from an arbitrarily large body. */
 export const MAX_REQUEST_BODY_BYTES = 100 * 1024
 
+/** /api/publish carries a full standalone HTML export (TSK-06D), which runs
+ * larger than the UMKMWebsiteState JSON the other two routes exchange —
+ * still generous headroom over the ~10-20KB a real export produces. */
+export const MAX_PUBLISH_BODY_BYTES = 400 * 1024
+
 function getAllowedOrigins() {
   return String(process.env.ALLOWED_ORIGIN || '')
     .split(',')

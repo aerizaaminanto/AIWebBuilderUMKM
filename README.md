@@ -33,6 +33,28 @@ Run the web
 npm run dev      # http://localhost:3000
 ```
 
+## Environment Variables
+Set these in `.env` (local) or your deploy target's env settings (Vercel dashboard → Project → Settings → Environment Variables). None are required to run the app — each missing/unset var just disables that one feature (`not_configured` response, `AI tidak merespons` / offline fallback, or a disabled UI control) rather than breaking the build.
+
+| Variable | Required for | Notes |
+|---|---|---|
+| `GEMINI_API_KEY` | AI generation & chat revision (US-05/07/08) | Server-only, never sent to the client. Free tier is capped at 20 requests/day. |
+| `VERCEL_TOKEN` | One-click Publish (US-11, stretch goal) | Vercel → Account Settings → Tokens → Create. Scope it to the team/project you want deploys to land in. |
+| `VERCEL_TEAM_ID` | Publish, only if the token belongs to a team account | Vercel → Team Settings → General → Team ID. Omit for a personal account token. |
+| `ALLOWED_ORIGIN` | CORS lockdown before going live | Comma-separated origins, e.g. `https://your-demo.vercel.app`. Unset = any Origin is accepted (dev default). |
+| `ENABLE_API_DOCS` | Swagger UI at `/api/docs` | Off by default so the API spec isn't publicly browsable. Set to `true` locally if you need it. |
+
+**Deploying this app to Vercel:** push to GitHub, then `vercel` import the repo (Framework Preset: Vite — it auto-detects `api/*.js` as Serverless Functions). Add `GEMINI_API_KEY` (and `VERCEL_TOKEN`/`VERCEL_TEAM_ID` if you want the Publish button live) under Project Settings → Environment Variables, then redeploy.
+
+## Testing
+| Command | Description |
+|---------|-------------|
+| `npm test` | Unit tests (Vitest) |
+| `npm run test:e2e` | E2E tests (Playwright, desktop + mobile emulation); writes an HTML report to `playwright-report/` |
+| `npm run test:e2e:report` | Open the HTML report from the last E2E run |
+
+Test cases, latest results, and the issues each test covers are documented in [doc/TEST_REPORT.md](doc/TEST_REPORT.md).
+
 ## Project Member
 - Aldiansyah Anugrah Ramadhan
 - Achmad Eriza Aminanto

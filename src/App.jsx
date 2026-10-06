@@ -35,9 +35,9 @@ import {
   detectCategorySignal,
   isValidWhatsappNumber,
 } from './lib/templateSelector'
-import { exportWebsiteToZip, copyHtmlToClipboard } from './lib/exportWebsite'
+import { exportWebsiteToZip, copyHtmlToClipboard, buildStandaloneHtml } from './lib/exportWebsite'
 import { useWebsite } from './store/websiteStore.jsx'
-import { generateWebsite, reviseWebsite } from './lib/websiteController'
+import { generateWebsite, reviseWebsite, publishWebsite } from './lib/websiteController'
 
 function toChatHistory(messages) {
   return messages
@@ -144,6 +144,7 @@ export default function App() {
 
   const [inputPrompt, setInputPrompt] = useState('')
   const [isTyping, setIsTyping] = useState(false)
+  const [isPublishing, setIsPublishing] = useState(false)
   const chatBottomRef = useRef(null)
 
   // Toast notifications (TSK-06B / Hari 7)
@@ -653,11 +654,34 @@ export default function App() {
     }
   }
 
-  // TSK-06D (Could-Have / stretch goal): one-click static publish needs a
-  // deploy provider (Vercel/Supabase/Firebase) credential we don't have
-  // configured here. Per the task's own Plan B ("Publish gagal -> nonaktifkan
-  // tombol, fokus pada unduhan ZIP"), the button is shown but disabled
-  // rather than faking a deploy.
+  // TSK-06D (Could-Have / stretch goal, US-11): one-click static publish via
+  // the Vercel Deployments API (server/vercelClient.js). Stays a no-op
+  // "belum dikonfigurasi" toast — not a fake success — when the backend has
+  // no VERCEL_TOKEN, per the task's own Plan B ("Publish gagal -> nonaktifkan
+  // tombol, fokus pada unduhan ZIP"); here "gagal" also covers "never set up".
+  const handlePublish = async () => {
+    if (isPublishing || !websiteData) return
+    setIsPublishing(true)
+    try {
+      const { html, slug } = buildStandaloneHtml(websiteData, activeTemplate)
+      const result = await publishWebsite(html, slug)
+      if (result.ok) {
+        const publishedUrl = result.data?.url
+        try { await navigator.clipboard.writeText(publishedUrl) } catch { /* clipboard optional */ }
+        showToast('success', `Website berhasil dipublish: ${publishedUrl} (link disalin ke clipboard)`)
+        window.open(publishedUrl, '_blank', 'noopener,noreferrer')
+      } else if (result.error === 'not_configured') {
+        showToast('warning', 'Fitur Publish belum dikonfigurasi di server ini. Gunakan Download Website untuk saat ini.')
+      } else {
+        showToast('error', 'Gagal publish website. Gunakan Download Website sebagai gantinya.')
+      }
+    } catch (err) {
+      console.error('Gagal publish website:', err)
+      showToast('error', 'Gagal publish website. Gunakan Download Website sebagai gantinya.')
+    } finally {
+      setIsPublishing(false)
+    }
+  }
 
   const currentMeta = TEMPLATE_META[activeTemplate]
   const currentThemes = currentMeta.themes
@@ -722,18 +746,22 @@ export default function App() {
             })}
           </div>
 
-          {/* Publish Button (TSK-06D — stretch goal, disabled: no deploy provider configured).
+          {/* Publish Button (TSK-06D — stretch goal / US-11). Always enabled
+              client-side — a missing VERCEL_TOKEN is a server-side
+              `not_configured` response (handlePublish), not a disabled
+              button, since the frontend never knows the token is set.
               aria-label kept as the short visible label so the accessible
               name doesn't silently change on mobile once the text span
               hides (issue #24 cross-device smoke test). */}
           <button
-            disabled
-            className="flex items-center gap-1.5 bg-slate-800/60 border border-slate-700/60 text-slate-400 text-xs font-semibold px-2.5 sm:px-3.5 py-1.5 rounded-lg cursor-not-allowed shrink-0"
-            title="Publish otomatis (stretch goal) — segera hadir. Gunakan Download Website untuk saat ini."
+            onClick={handlePublish}
+            disabled={isPublishing || !websiteData}
+            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-slate-800 border border-slate-700 text-white text-xs font-semibold px-2.5 sm:px-3.5 py-1.5 rounded-lg transition-all shrink-0"
+            title="Publish website ke URL publik (stretch goal)"
             aria-label="Publish"
           >
             <UploadCloud className="w-3.5 h-3.5" aria-hidden="true" />
-            <span className="hidden sm:inline" aria-hidden="true">Publish</span>
+            <span className="hidden sm:inline" aria-hidden="true">{isPublishing ? 'Publishing…' : 'Publish'}</span>
           </button>
 
           {/* Download Website Button */}

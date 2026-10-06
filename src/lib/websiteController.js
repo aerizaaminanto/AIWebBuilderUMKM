@@ -65,3 +65,16 @@ export async function reviseWebsite(current, message, history = [], { onStep } =
   const json = await postJson('/api/revise', { current, message, history })
   return json
 }
+
+/**
+ * One-click static publish (US-11, Could-Have stretch goal / TSK-06D).
+ * `html`/`slug` are the same standalone export `buildStandaloneHtml` already
+ * produces for the ZIP/HTML download (src/lib/exportWebsite.js) — the
+ * backend is a thin, token-holding proxy to the Vercel Deployments API, not
+ * a second HTML templating engine, so there's exactly one place the
+ * exported markup is built. Returns `{ ok: false, error: 'not_configured' }`
+ * when the backend has no VERCEL_TOKEN, same shape as generate/revise.
+ */
+export async function publishWebsite(html, slug) {
+  return postJson('/api/publish', { html, slug })
+}

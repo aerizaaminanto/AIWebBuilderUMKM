@@ -171,6 +171,45 @@ export const openApiSpec = {
         },
       },
     },
+    '/api/publish': {
+      post: {
+        tags: ['website'],
+        summary: 'One-click static publish to Vercel (US-11, Could-Have stretch goal / TSK-06D)',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['html'],
+                properties: {
+                  html: { type: 'string', description: 'Standalone HTML export, as produced by src/lib/exportWebsite.js buildStandaloneHtml()' },
+                  slug: { type: 'string', example: 'warung-kopi-sejahtera', description: 'Used as the Vercel project name' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Always 200 — see `ok` to distinguish success/failure. `not_configured` when VERCEL_TOKEN is unset.',
+            content: {
+              'application/json': {
+                examples: {
+                  success: { value: { ok: true, data: { url: 'https://warung-kopi-sejahtera.vercel.app' } } },
+                  notConfigured: { value: { ok: false, error: 'not_configured' } },
+                  publishFailed: { value: { ok: false, error: 'publish_failed', detail: '...' } },
+                },
+              },
+            },
+          },
+          400: { description: 'Missing `html`' },
+          403: { description: 'Origin not in the ALLOWED_ORIGIN allowlist (#20)' },
+          413: { description: `Request body exceeds ${MAX_REQUEST_BODY_BYTES} bytes (#25)` },
+          429: { description: 'Rate limit exceeded — see Retry-After header (#8)' },
+        },
+      },
+    },
   },
   components: {
     schemas: {
