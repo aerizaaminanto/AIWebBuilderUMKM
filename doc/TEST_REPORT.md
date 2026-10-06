@@ -12,7 +12,7 @@ Pada eksekusi terakhir semua test lulus: 96 unit test dan 30 skenario end-to-end
 | E2E | Playwright 1.63.0 | 30 | 60 (30 × 2 device) | 60 | 0 | 0 |
 
 - **Tanggal eksekusi:** 6 Oktober 2026
-- **Kode yang diuji:** branch `main`, commit `057dbdb`, ditambah perubahan fitur Publish (US-11) yang belum di-commit saat pengujian
+- **Kode yang diuji:** branch `main`, commit `a1a1286`
 - **Lingkungan:** macOS (Apple Silicon), Node.js 22.23.2
 - **Device E2E:** Desktop Chrome dan emulasi Pixel 5. Seluruh suite dijalankan di keduanya ([#24]).
 - **Layanan eksternal:** di E2E, panggilan ke AI (Gemini) dan ke Vercel di-mock, yaitu dijawab dengan respons tiruan tanpa memanggil layanan aslinya, supaya hasil test konsisten dan tidak menghabiskan kuota.
